@@ -22,3 +22,5 @@ dependencyResolutionManagement {
 rootProject.name = "UpgradeFirmware"
 include(":app")
 include(":DownloadSDK")
+include(":app:downloadmanagerandroid")
+include(":app:customizedownloadandroid")

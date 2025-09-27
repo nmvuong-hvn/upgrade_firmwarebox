@@ -1,6 +1,7 @@
 package com.marusys.upgradefirmware
 
 import android.os.Bundle
+import android.util.Log
 import android.webkit.URLUtil
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -56,28 +57,52 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val TAG = "Greeting"
     var dataLink by remember { mutableStateOf("") }
-    val firmwareManager = remember { TestDownloadingManager1.getInstance() }
+//    val firmwareManager = remember { TestDownloadingManager1.getInstance() }
+    val firmwareManager = remember { TestDownloadingManager.getInstance() }
     var downloadId by remember {
         mutableLongStateOf(-1L)
     }
-    LaunchedEffect(Unit) {
-        TestDownloadingManager1.getInstance().init()
-    }
-    LaunchedEffect(downloadId) {
-        if (downloadId != -1L) {
-            firmwareManager.monitorDownloading()
-        }
-    }
+
+//    val callback = remember { object : TestDownloadingManager1.DownloadingCallback {
+//        override fun onProgress(
+//            data: String,
+//            downloadedBytes: Long,
+//            totalBytes: Long,
+//            downloadId: Long
+//        ) {
+//            Log.d(TAG, "onProgress: ====> data = $data - downloadId = $downloadId")
+//        }
+//
+//        override fun onCurrentState(data: String, downloadId: Long) {
+//        }
+//
+//    }}
+
+//    LaunchedEffect(Unit) {
+//        TestDownloadingManager1.getInstance().init()
+//        TestDownloadingManager1.getInstance().setCallback(callback)
+//    }
+//    LaunchedEffect(downloadId) {
+//        if (downloadId != -1L) {
+//            firmwareManager.monitorDownloading()
+//        }
+//    }
 
     Scaffold (modifier = Modifier.fillMaxSize()){ paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            OutlinedTextField(dataLink, onValueChange = { dataLink = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)) {
+            OutlinedTextField(dataLink, onValueChange = { dataLink = it }, modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp))
             Spacer(modifier = Modifier.height(30.dp))
             Row (modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically){
                 Button(onClick = {
-                    val fileName = URLUtil.guessFileName(dataLink, null, null)
-                    downloadId = firmwareManager.downloadFile(dataLink, fileName)
+//                    val fileName = URLUtil.guessFileName(dataLink, null, null)
+//                    downloadId = firmwareManager.downloadFile(dataLink, fileName)
+                    firmwareManager.startDownloading(dataLink)
                 }) {
                     Text(text = "Downloading")
                 }

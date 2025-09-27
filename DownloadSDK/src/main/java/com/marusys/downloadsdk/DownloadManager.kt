@@ -15,36 +15,36 @@ import java.util.concurrent.ConcurrentHashMap
  * Automatically resumes downloads when app is reopened
  */
 class DownloadManager private constructor() {
-
+    
     private val TAG = "DownloadManager"
     private val activeDownloads = ConcurrentHashMap<Long, DownloadTaskManager>()
     private val persistenceManager = DownloadPersistenceManager.getInstance()
     private val resumeScope = CoroutineScope(Dispatchers.IO)
-
+    
     companion object {
         @Volatile
         private var INSTANCE: DownloadManager? = null
-
+        
         fun getInstance(): DownloadManager {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: DownloadManager().also { INSTANCE = it }
             }
         }
     }
-
+    
     /**
      * Initialize the download manager and resume incomplete downloads
      */
     fun initialize(context: Context, autoResumeIncompleteDownloads: Boolean = true) {
         persistenceManager.initialize(context)
-
+        
         if (autoResumeIncompleteDownloads) {
             resumeIncompleteDownloads(context)
         }
-
+        
         Log.d(TAG, "DownloadManager initialized")
     }
-
+    
     /**
      * Resume all incomplete downloads from database when app opens
      */
@@ -53,7 +53,7 @@ class DownloadManager private constructor() {
             try {
                 val incompleteDownloads = persistenceManager.getIncompleteDownloads()
                 Log.d(TAG, "Resuming ${incompleteDownloads.size} incomplete downloads")
-
+                
                 incompleteDownloads.forEach { request ->
                     // Validate that the file still exists and has correct size
                     if (persistenceManager.validateDownloadFile(request.downloadId)) {
@@ -71,24 +71,24 @@ class DownloadManager private constructor() {
             }
         }
     }
-
+    
     private fun resumeDownloadFromDatabase(
         context: Context,
         request: DownloadRequestFileModel,
         outputFile: File
     ) {
         Log.d(TAG, "Resuming download: ${request.fileName} from ${formatBytes(request.downloadedBytes)}")
-
+        
         val listener = DatabaseIntegratedListener(request.downloadId)
         val downloadTask = DownloadTaskManager(context, request, outputFile, listener)
         activeDownloads[request.downloadId] = downloadTask
-
+        
         // Set initial state to paused so user can choose to resume
         persistenceManager.updateState(request.downloadId, Constants.STATE_PAUSED)
-
+        
         Log.d(TAG, "Download ${request.fileName} ready to resume (currently paused)")
     }
-
+    
     /**
      * Start a new download with database persistence
      */
@@ -99,30 +99,30 @@ class DownloadManager private constructor() {
         listener: DownloadListener? = null
     ): Long {
         val downloadId = downloadRequest.downloadId
-
+        
         // Check if download is already active
         if (isDownloadActive(downloadId)) {
             Log.w(TAG, "Download with ID $downloadId is already active")
             return downloadId
         }
-
+        
         // Save to database
         resumeScope.launch {
             persistenceManager.saveDownloadRequest(downloadRequest, outputFile.absolutePath)
         }
-
+        
         // Create composite listener that includes database updates
         val compositeListener = CompositeDownloadListener(downloadId, listener)
-
+        
         // Create and start download task
         val downloadTask = DownloadTaskManager(context, downloadRequest, outputFile, compositeListener)
         activeDownloads[downloadId] = downloadTask
         downloadTask.startDownload()
-
+        
         Log.d(TAG, "Started download: ${downloadRequest.fileName} (ID: $downloadId)")
         return downloadId
     }
-
+    
     /**
      * Pause a download
      */
@@ -134,7 +134,7 @@ class DownloadManager private constructor() {
             true
         } ?: false
     }
-
+    
     /**
      * Resume a paused download
      */
@@ -146,7 +146,7 @@ class DownloadManager private constructor() {
             true
         } ?: false
     }
-
+    
     /**
      * Cancel a download
      */
@@ -159,7 +159,7 @@ class DownloadManager private constructor() {
             true
         } ?: false
     }
-
+    
     /**
      * Cancel all active downloads
      */
@@ -170,54 +170,54 @@ class DownloadManager private constructor() {
         }
         Log.d(TAG, "Cancelled all downloads (${downloadIds.size} downloads)")
     }
-
+    
     /**
      * Get download state
      */
     fun getDownloadState(downloadId: Long): Int? {
         return activeDownloads[downloadId]?.getDownloadState()
     }
-
+    
     /**
      * Get current progress in bytes
      */
     fun getDownloadProgress(downloadId: Long): Long {
         return activeDownloads[downloadId]?.getCurrentProgress() ?: 0L
     }
-
+    
     /**
      * Get total file size in bytes
      */
     fun getDownloadTotalSize(downloadId: Long): Long {
         return activeDownloads[downloadId]?.getTotalSize() ?: 0L
     }
-
+    
     /**
      * Get complete download information
      */
     fun getDownloadInfo(downloadId: Long): DownloadRequestFileModel? {
         return activeDownloads[downloadId]?.getDownloadInfo()
     }
-
+    
     /**
      * Check if download is active
      */
     fun isDownloadActive(downloadId: Long): Boolean {
         return activeDownloads[downloadId]?.isActive() == true
     }
-
+    
     /**
      * Get all active download IDs
      */
     fun getActiveDownloadIds(): Set<Long> {
         return activeDownloads.keys.toSet()
     }
-
+    
     /**
      * Get number of active downloads
      */
     fun getActiveDownloadCount(): Int = activeDownloads.size
-
+    
     /**
      * Pause all active downloads
      */
@@ -227,7 +227,7 @@ class DownloadManager private constructor() {
         }
         Log.d(TAG, "Paused all downloads (${activeDownloads.size} downloads)")
     }
-
+    
     /**
      * Resume all paused downloads
      */
@@ -239,13 +239,13 @@ class DownloadManager private constructor() {
         }
         Log.d(TAG, "Resumed all paused downloads")
     }
-
+    
     /**
      * Clean up completed or failed downloads from active list
      */
     fun cleanupCompletedDownloads() {
         val completedIds = mutableListOf<Long>()
-
+        
         activeDownloads.forEach { (id, task) ->
             val state = task.getDownloadState()
             if (state in listOf(Constants.STATE_COMPLETED, Constants.STATE_FAILED, Constants.STATE_CANCELLED)) {
@@ -253,16 +253,16 @@ class DownloadManager private constructor() {
                 completedIds.add(id)
             }
         }
-
+        
         completedIds.forEach { id ->
             activeDownloads.remove(id)
         }
-
+        
         if (completedIds.isNotEmpty()) {
             Log.d(TAG, "Cleaned up ${completedIds.size} completed downloads")
         }
     }
-
+    
     /**
      * Get download statistics
      */
@@ -272,7 +272,7 @@ class DownloadManager private constructor() {
         var totalWaitingForNetwork = 0
         var totalCompleted = 0
         var totalFailed = 0
-
+        
         activeDownloads.values.forEach { task ->
             when (task.getDownloadState()) {
                 Constants.STATE_DOWNLOADING -> totalDownloading++
@@ -282,7 +282,7 @@ class DownloadManager private constructor() {
                 Constants.STATE_FAILED -> totalFailed++
             }
         }
-
+        
         return DownloadStatistics(
             totalActive = activeDownloads.size,
             downloading = totalDownloading,
@@ -292,7 +292,7 @@ class DownloadManager private constructor() {
             failed = totalFailed
         )
     }
-
+    
     private fun formatBytes(bytes: Long): String {
         return when {
             bytes >= 1024 * 1024 * 1024 -> "${bytes / (1024 * 1024 * 1024)} GB"
@@ -301,7 +301,7 @@ class DownloadManager private constructor() {
             else -> "$bytes B"
         }
     }
-
+    
     /**
      * Composite listener that handles both user callbacks and database persistence
      */
@@ -309,14 +309,14 @@ class DownloadManager private constructor() {
         private val downloadId: Long,
         private val userListener: DownloadListener?
     ) : DownloadListener {
-
+        
         override fun onProgressUpdate(downloadId: Long, downloaded: Long, total: Long, percentage: Int) {
             // Update database
             persistenceManager.updateProgress(downloadId, downloaded, total)
             // Notify user listener
             userListener?.onProgressUpdate(downloadId, downloaded, total, percentage)
         }
-
+        
         override fun onDownloadComplete(downloadId: Long, success: Boolean, filePath: String?) {
             // Update database
             val state = if (success) Constants.STATE_COMPLETED else Constants.STATE_FAILED
@@ -326,78 +326,78 @@ class DownloadManager private constructor() {
             // Notify user listener
             userListener?.onDownloadComplete(downloadId, success, filePath)
         }
-
+        
         override fun onDownloadError(downloadId: Long, error: String) {
             // Update database
             persistenceManager.updateState(downloadId, Constants.STATE_FAILED, error)
             // Notify user listener
             userListener?.onDownloadError(downloadId, error)
         }
-
+        
         override fun onDownloadStateChanged(downloadId: Long, state: Int) {
             // Update database
             persistenceManager.updateState(downloadId, state)
             // Notify user listener
             userListener?.onDownloadStateChanged(downloadId, state)
         }
-
+        
         override fun onDownloadPaused(downloadId: Long) {
             persistenceManager.updateState(downloadId, Constants.STATE_PAUSED)
             userListener?.onDownloadPaused(downloadId)
         }
-
+        
         override fun onDownloadResumed(downloadId: Long) {
             persistenceManager.updateState(downloadId, Constants.STATE_DOWNLOADING)
             userListener?.onDownloadResumed(downloadId)
         }
-
+        
         override fun onDownloadCancelled(downloadId: Long) {
             persistenceManager.updateState(downloadId, Constants.STATE_CANCELLED)
             userListener?.onDownloadCancelled(downloadId)
         }
-
+        
         override fun onNetworkReconnected(downloadId: Long) {
             userListener?.onNetworkReconnected(downloadId)
         }
     }
-
+    
     /**
      * Database-only listener for resumed downloads
      */
     private inner class DatabaseIntegratedListener(
         private val downloadId: Long
     ) : DownloadListener {
-
+        
         override fun onProgressUpdate(downloadId: Long, downloaded: Long, total: Long, percentage: Int) {
             persistenceManager.updateProgress(downloadId, downloaded, total)
         }
-
+        
         override fun onDownloadComplete(downloadId: Long, success: Boolean, filePath: String?) {
             val state = if (success) Constants.STATE_COMPLETED else Constants.STATE_FAILED
             persistenceManager.updateState(downloadId, state)
             activeDownloads.remove(downloadId)
         }
-
+        
         override fun onDownloadError(downloadId: Long, error: String) {
             persistenceManager.updateState(downloadId, Constants.STATE_FAILED, error)
         }
-
+        
         override fun onDownloadStateChanged(downloadId: Long, state: Int) {
             persistenceManager.updateState(downloadId, state)
         }
-
+        
         override fun onDownloadPaused(downloadId: Long) {
             persistenceManager.updateState(downloadId, Constants.STATE_PAUSED)
         }
-
+        
         override fun onDownloadResumed(downloadId: Long) {
             persistenceManager.updateState(downloadId, Constants.STATE_DOWNLOADING)
         }
-
+        
         override fun onDownloadCancelled(downloadId: Long) {
             persistenceManager.updateState(downloadId, Constants.STATE_CANCELLED)
         }
-
+        
         override fun onNetworkReconnected(downloadId: Long) {
             // Handle network reconnection
         }

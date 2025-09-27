@@ -21,22 +21,22 @@ class DownloadTaskManager(
 ) : DownloadController, NetworkManager.NetworkConnectionState {
 
     private val TAG = "DownloadTaskManager"
-
+    
     // Core components
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val httpConnectionManager = HttpConnectionManager(downloadRequestFileModel)
     private val networkManager = NetworkManager(context, this)
-
+    
     // State management
     private val currentState = AtomicInteger(Constants.STATE_IDLE)
     private val isPaused = AtomicBoolean(false)
     private val isCancelled = AtomicBoolean(false)
     private val isWaitingForNetwork = AtomicBoolean(false)
-
+    
     // Download progress tracking
     private val downloadedBytes = AtomicLong(downloadRequestFileModel.downloadedBytes)
     private val totalBytes = AtomicLong(downloadRequestFileModel.totalBytes)
-
+    
     // Jobs and retry management
     private var downloadJob: Job? = null
     private var retryCount = 0
@@ -47,24 +47,24 @@ class DownloadTaskManager(
             Log.w(TAG, "Download already in progress")
             return
         }
-
+        
         networkManager.registerNetworkCallback()
-
+        
         if (!networkManager.isConnected()) {
             setState(Constants.STATE_WAITING_FOR_NETWORK)
             Log.d(TAG, "No network connection, waiting for network...")
             return
         }
-
+        
         executeDownload()
     }
 
     private fun executeDownload() {
         if (isCancelled.get()) return
-
+        
         setState(Constants.STATE_DOWNLOADING)
         isPaused.set(false)
-
+        
         downloadJob = scope.launch {
             try {
                 performDownload()
@@ -84,19 +84,19 @@ class DownloadTaskManager(
     private suspend fun performDownload() {
         // Get current downloaded bytes (important for resume)
         val currentDownloadedBytes = downloadedBytes.get()
-
+        
         // Update request model with current progress for HTTP Range header
         downloadRequestFileModel = downloadRequestFileModel.copy(
             downloadedBytes = currentDownloadedBytes
         )
-
+        
         Log.d(TAG, "Starting download from byte: $currentDownloadedBytes")
-
+        
         // Establish connection with Range header for resume
         httpConnectionManager.buildConnectionToDownload()
-
+        
         val contentLength = httpConnectionManager.getContentLength()
-
+        
         // Set total bytes correctly for resume scenarios
         if (totalBytes.get() <= 0) {
             // For new downloads, total = content length + already downloaded
@@ -110,7 +110,7 @@ class DownloadTaskManager(
             totalBytes.set(totalSize)
             Log.d(TAG, "Total size set to: $totalSize bytes")
         }
-
+        
         // Validate that we can resume
         if (currentDownloadedBytes > 0 && outputFile.exists()) {
             val actualFileSize = outputFile.length()
@@ -126,7 +126,7 @@ class DownloadTaskManager(
                 httpConnectionManager.buildConnectionToDownload()
             }
         }
-
+        
         // Start streaming download from current position
         httpConnectionManager.getInputStream()?.use { inputStream ->
             // IMPORTANT: Use append mode (true) when resuming
@@ -135,7 +135,7 @@ class DownloadTaskManager(
                 downloadDataStream(inputStream, outputStream)
             }
         } ?: throw IOException("Unable to get input stream")
-
+        
         // Download completed successfully
         setState(Constants.STATE_COMPLETED)
         listener?.onDownloadComplete(
@@ -143,7 +143,7 @@ class DownloadTaskManager(
             true,
             outputFile.absolutePath
         )
-
+        
         Log.d(TAG, "Download completed. Final size: ${outputFile.length()} bytes")
     }
 
@@ -169,19 +169,19 @@ class DownloadTaskManager(
             // Write data to file
             outputStream.write(buffer, 0, bytesRead)
             outputStream.flush()
-
+            
             // Update progress
             val currentDownloaded = downloadedBytes.addAndGet(bytesRead.toLong())
-
+            
             // Throttle progress updates (every 100KB or 1%)
             val shouldUpdateProgress = currentDownloaded - lastProgressUpdate >= 100_000 ||
                     (totalBytes.get() > 0 && (currentDownloaded * 100 / totalBytes.get()) > (lastProgressUpdate * 100 / totalBytes.get()))
-
+            
             if (shouldUpdateProgress) {
                 notifyProgress(currentDownloaded)
                 lastProgressUpdate = currentDownloaded
             }
-
+            
             // Yield to allow other coroutines to run and check for state changes
             yield()
         }
@@ -192,7 +192,7 @@ class DownloadTaskManager(
         val percentage = if (total > 0) {
             ((downloaded * 100) / total).toInt()
         } else 0
-
+        
         listener?.onProgressUpdate(
             downloadRequestFileModel.downloadId,
             downloaded,
@@ -217,7 +217,7 @@ class DownloadTaskManager(
         if (retryCount < Constants.MAX_RETRY_ATTEMPTS && !isCancelled.get()) {
             retryCount++
             Log.d(TAG, "Retrying download... Attempt $retryCount/${Constants.MAX_RETRY_ATTEMPTS}")
-
+            
             scope.launch {
                 delay(Constants.RETRY_DELAY_MS)
                 if (!isCancelled.get()) {
@@ -300,13 +300,13 @@ class DownloadTaskManager(
     // NetworkManager.NetworkConnectionState implementation
     override fun onConnected() {
         Log.d(TAG, "Network reconnected")
-
+        
         if (isWaitingForNetwork.get() || currentState.get() == Constants.STATE_WAITING_FOR_NETWORK) {
             isWaitingForNetwork.set(false)
             retryCount = 0 // Reset retry count on network reconnection
-
+            
             listener?.onNetworkReconnected(downloadRequestFileModel.downloadId)
-
+            
             // Resume download automatically when network is restored
             executeDownload()
         }
@@ -314,7 +314,7 @@ class DownloadTaskManager(
 
     override fun onDisconnected() {
         Log.d(TAG, "Network disconnected")
-
+        
         if (currentState.get() == Constants.STATE_DOWNLOADING) {
             setState(Constants.STATE_WAITING_FOR_NETWORK)
             isWaitingForNetwork.set(true)

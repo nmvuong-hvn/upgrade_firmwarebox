@@ -36,7 +36,7 @@ class TestDownloadingManager(val context: Context, val downloadDao: DownloadDao)
     var cachedUrl = ""
     val scope = CoroutineScope(Dispatchers.IO)
     companion object {
-        private const val BUFFER_SIZE = 64 * 1024
+        const val BUFFER_SIZE = 64 * 1024
         @SuppressLint("StaticFieldLeak")
         var downloadingManager : TestDownloadingManager? = null
         fun create(context: Context , downloadDao: DownloadDao) {
@@ -50,13 +50,14 @@ class TestDownloadingManager(val context: Context, val downloadDao: DownloadDao)
         }
     }
 
-//    fun syncDataFromDb(){
-//        runBlocking {
-//            downloadDao.getIncompleteDownloads().forEach {
-//                activesDownloadingMap[it.url] = it
-//            }
-//        }
-//    }
+    fun syncDataFromDb(){
+        networkMonitorManager.init()
+        runBlocking {
+            downloadDao.getIncompleteDownloads().forEach {
+                activesDownloadingMap[it.url] = it
+            }
+        }
+    }
 
     var connection : HttpURLConnection ?= null
     var cachedDownloadedBytes = 0L
@@ -101,7 +102,6 @@ class TestDownloadingManager(val context: Context, val downloadDao: DownloadDao)
 
 
     fun startDownloading(url: String){
-        networkMonitorManager.init()
         scope.launch {
             val downloadEntity = activesDownloadingMap[url]
             if (downloadEntity == null){
@@ -166,6 +166,7 @@ class TestDownloadingManager(val context: Context, val downloadDao: DownloadDao)
                         val progress = (cachedDownloadedBytes * 100.0f / contentLength).toDouble()
                         Log.d(TAG, "startDownloading: =====> downloadedBytes = $cachedDownloadedBytes - progress = ${progress.roundTo(2)}")
                         if (cachedDownloadedBytes == contentLength) {
+                            Log.d(TAG, "startDownloading: =====> finished")
                             isFinished = true
                             break;
                         }
@@ -181,11 +182,13 @@ class TestDownloadingManager(val context: Context, val downloadDao: DownloadDao)
             outputStream.close()
             bufferedInputStream.close()
             connection?.disconnect()
+            Log.d(TAG, "startDownloading: ====> isFinished = $isFinished")
             if (isFinished) {
                 val path: String = getPath(dirPath, fileName)
                 renameFileName(tempPath, path)
-                if (file.exists()) {
-                    val sizeInBytes = file.length()
+                val fileNew = File(path)
+                if (fileNew.exists()) {
+                    val sizeInBytes = fileNew.length()
                     Log.d(TAG, "resumeDownloading: =====> File size: $sizeInBytes bytes")
                 }
             }
@@ -245,6 +248,7 @@ class TestDownloadingManager(val context: Context, val downloadDao: DownloadDao)
             outputStream.close()
             inputStream.close()
             connection?.disconnect()
+            Log.d(TAG, "resumeDownloading: =====> isFinished = $isFinished")
             if (isFinished) {
                 val currentTime = System.currentTimeMillis()
                 Log.d(TAG, "resumeDownloading: =====> finished = $currentTime")

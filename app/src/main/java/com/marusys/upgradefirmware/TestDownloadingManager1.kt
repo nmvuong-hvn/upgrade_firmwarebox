@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class TestDownloadingManager1(context: Context) : NetworkConnectionManager.NetworkStateListener{
@@ -21,6 +22,17 @@ class TestDownloadingManager1(context: Context) : NetworkConnectionManager.Netwo
     private val connectionNetworkConnectionManager = NetworkConnectionManager(context, this)
     private val TAG = "DownloadingManager"
     private val scope = CoroutineScope(Dispatchers.IO  + SupervisorJob())
+    private val downloadingMap = ConcurrentHashMap<String, DownloadEntity>()
+    private var callback : DownloadingCallback ?= null
+
+    interface DownloadingCallback {
+        fun onProgress(data : String, downloadedBytes: Long, totalBytes: Long, downloadId: Long)
+        fun onCurrentState(data: String, downloadId: Long)
+    }
+
+    fun setCallback(data: DownloadingCallback){
+        callback = data
+    }
     companion object {
         @SuppressLint("StaticFieldLeak")
         var downloadingManager : TestDownloadingManager1? = null
@@ -55,6 +67,7 @@ class TestDownloadingManager1(context: Context) : NetworkConnectionManager.Netwo
                 downloadedBytes = 0L,
                 status = DownloadEntity.STATUS_PENDING
             )
+            downloadingMap[url] = downloadEntity
             Log.d(TAG, "downloadFile: ====> insertDownloaded")
             DownloadDatabase.getInstance().downloadDao().insertDownload(downloadEntity)
         }
@@ -71,13 +84,16 @@ class TestDownloadingManager1(context: Context) : NetworkConnectionManager.Netwo
             Log.d(TAG, "onNetworkAvailable: ====> getDownloadingList ${downloadingList.size}")
             downloadingList.forEach {
                 Log.d(TAG, "onNetworkAvailable: ====> restarting download ${it.downloadId}, ${it.url}, ${it.fileName}")
-                val newDownloadId = downloadFile(it.url, it.fileName)
-                Log.d(TAG, "onNetworkAvailable: ====> newDownloadId = $newDownloadId")
-                val updatedEntity = it.copy(
-                    downloadId = newDownloadId,
-                    status = DownloadEntity.STATUS_PENDING
-                )
-                DownloadDatabase.getInstance().downloadDao().updateDownload(updatedEntity)
+                val entityDownloading = downloadingMap[it.url]
+                if (entityDownloading == null) {
+                    val newDownloadId = downloadFile(it.url, it.fileName)
+                    Log.d(TAG, "onNetworkAvailable: ====> newDownloadId = $newDownloadId")
+                    val updatedEntity = it.copy(
+                        downloadId = newDownloadId,
+                        status = DownloadEntity.STATUS_PENDING
+                    )
+                    DownloadDatabase.getInstance().downloadDao().updateDownload(updatedEntity)
+                }
             }
         }
     }
@@ -92,12 +108,13 @@ class TestDownloadingManager1(context: Context) : NetworkConnectionManager.Netwo
                 val updatedEntity = it.copy(
                     status = DownloadEntity.STATUS_FAILED
                 )
+                downloadingMap.remove(it.url)
                 DownloadDatabase.getInstance().downloadDao().updateDownload(updatedEntity)
             }
         }
     }
 
-    @SuppressLint("Range")
+    @SuppressLint("Range", "DefaultLocale")
     fun monitorDownloading(){
         scope.launch {
             while(isActive){
@@ -110,11 +127,10 @@ class TestDownloadingManager1(context: Context) : NetworkConnectionManager.Netwo
                         val status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
                         val downloadedBytes = cursor.getLong(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                         val totalBytes = cursor.getLong(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-
                         val tmpProcess = (1.0f * downloadedBytes / totalBytes).toDouble()
                         val progress = tmpProcess * 100.0f
-
                         Log.d(TAG, "monitorDownloading: ====> downloadId: ${it.downloadId}, status: $status, percentage = $progress downloadedBytes: $downloadedBytes, totalBytes: $totalBytes")
+                        callback?.onProgress(String.format("%.2f", progress),downloadedBytes,totalBytes,it.downloadId)
                         val updatedEntity = it.copy(
                             downloadedBytes = downloadedBytes,
                             totalBytes = totalBytes,
@@ -154,6 +170,5 @@ data class DownloadEntity(
         const val STATUS_PAUSED = 2
         const val STATUS_COMPLETED = 3
         const val STATUS_FAILED = 4
-        const val STATUS_CANCELLED = 5
     }
 }

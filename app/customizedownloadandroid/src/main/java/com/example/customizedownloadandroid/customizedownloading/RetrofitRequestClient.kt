@@ -3,6 +3,7 @@ package com.example.customizedownloadandroid.customizedownloading
 import android.util.Log
 import androidx.compose.ui.text.intl.Locale
 import com.example.customizedownloadandroid.customizedownloading.HttpClient.Companion.ACCEPT_RANGES
+import com.example.customizedownloadandroid.customizedownloading.HttpClient.Companion.CONTENT_DISPOSITION
 import com.example.customizedownloadandroid.customizedownloading.HttpClient.Companion.RANGE
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,17 @@ class RetrofitRequestClient(val entityDownload: DownloadEntity) : DownloadingTas
     private var cachedDownloadedByte = entityDownload.downloadedBytes
     private var isResumeSupported = false
     private val headerMap = mutableMapOf<String, String>()
-
+    fun getFileNameFromContentDisposition(header: String): String {
+        // Check for RFC 5987 format (filename*)
+        val filenameStarRegex = Regex("filename\\*=(?:UTF-8'')?([^;]+)")
+        filenameStarRegex.find(header)
+            ?.let { return java.net.URLDecoder.decode(it.groupValues[1], "UTF-8") }
+        // Check for normal filename=
+        val filenameRegex = Regex("filename=\"?([^\";]+)\"?")
+        filenameRegex.find(header)?.let { return it.groupValues[1] }
+        Log.d(TAG, "getFileNameFromContentDisposition: =====> filenameRegex = $filenameRegex ")
+        return ""
+    }
     override fun execute() {
         scope.launch {
             if (cachedDownloadedByte > 0){
@@ -42,7 +53,18 @@ class RetrofitRequestClient(val entityDownload: DownloadEntity) : DownloadingTas
             // isSupported
             val acceptRanges = responseServer.headers()[ACCEPT_RANGES]    
             val isAcceptRanges = acceptRanges != null && acceptRanges.isNotEmpty() && acceptRanges.contains("bytes")
-            val tempPath = FileStorage.getTempPath(entityDownload.dirPath, entityDownload.fileName)
+            var dataFileName = entityDownload.fileName
+            val contentDis = responseServer.headers()[CONTENT_DISPOSITION]
+            if (contentDis != null && contentDis.isNotEmpty() && contentDis.contains("filename")){
+                val dataRes = getFileNameFromContentDisposition(contentDis)
+                Log.d(TAG, "execute: ====> fileName = $dataRes")
+                if (dataRes.isNotEmpty()) {
+                    dataFileName = dataRes
+                }
+            }
+
+
+            val tempPath = FileStorage.getTempPath(entityDownload.dirPath, dataFileName)
             isResumeSupported = responseServer.code() == HttpURLConnection.HTTP_PARTIAL || isAcceptRanges
             Log.d(TAG, "execute: ====> isResumeSupported = $isResumeSupported")
             if(!isResumeSupported){
@@ -80,7 +102,7 @@ class RetrofitRequestClient(val entityDownload: DownloadEntity) : DownloadingTas
                 outputStream.flushAndSync()
                 outputStream.close()
                 inputStream.close()
-                val newPath = FileStorage.getPath(entityDownload.dirPath, entityDownload.fileName)
+                val newPath = FileStorage.getPath(entityDownload.dirPath, dataFileName)
                 
                 FileStorage.renameFileName(tempPath, newPath)
                 val fileNew = File(newPath)

@@ -12,6 +12,7 @@ class HttpClient(val downloadEntity: DownloadEntity) {
     companion object {
         const val RANGE = "Range"
         const val ACCEPT_RANGES = "Accept-Ranges"
+        const val CONTENT_DISPOSITION = "Content-Disposition"
     }
 
     private var connection: HttpURLConnection? = null

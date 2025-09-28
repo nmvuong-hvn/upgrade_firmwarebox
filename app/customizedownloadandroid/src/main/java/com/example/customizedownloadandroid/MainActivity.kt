@@ -113,17 +113,17 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
                         status = DownloadEntity.STATUS_DOWNLOADING
                     )
 
-                    firmwareManager.downloadFile(entity)
+                    downloadId = firmwareManager.downloadFile(entity)
                 }) {
                     Text(text = "Downloading")
                 }
                 Button(onClick = {
-//                    firmwareManager.pauseDownloading(dataLink)
+                    firmwareManager.pauseDownloading(downloadId)
                 }) {
                     Text(text = "Pause")
                 }
                 Button(onClick = {
-//                    firmwareManager.resumeDownloading(dataLink)
+                    firmwareManager.resumeDownloading(downloadId)
                 }) {
                     Text(text = "Resume")
                 }

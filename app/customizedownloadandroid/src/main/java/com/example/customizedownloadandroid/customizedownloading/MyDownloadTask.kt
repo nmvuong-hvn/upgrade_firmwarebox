@@ -1,7 +1,9 @@
 package com.example.customizedownloadandroid.customizedownloading
 
 import android.os.Build
+import android.os.RecoverySystem
 import android.util.Log
+import com.example.customizedownloadandroid.customizedownloading.HttpClient.Companion.CONTENT_DISPOSITION
 import com.example.customizedownloadandroid.customizedownloading.db.DownloadingDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,36 +16,48 @@ import java.io.BufferedInputStream
 import java.io.File
 
 class MyDownloadTask(val downloadEntity: DownloadEntity) {
-    private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val httpClient = HttpClient(downloadEntity)
-    private var currentState : DownloadTaskState = DownloadTaskState.None
+    private var currentState: DownloadTaskState = DownloadTaskState.None
     private val BUFFER_SIZE = 64 * 1024
     private var startTime: Long = 0
     private val TAG = "MyDownloadTask"
     private var cachedDownloadedByte = downloadEntity.downloadedBytes
     private var isResumeSupported = false
+    fun getFileNameFromContentDisposition(header: String): String {
+        val filenameStarRegex = Regex("filename\\*=(?:UTF-8'')?([^;]+)")
+        filenameStarRegex.find(header)?.let {
+            return java.net.URLDecoder.decode(it.groupValues[1], "UTF-8")
+        }
+        val filenameRegex = Regex("filename=\"?([^\";]+)\"?")
+        filenameRegex.find(header)?.let {
+            return it.groupValues[1]
+        }
+        Log.d(TAG, "getFileNameFromContentDisposition: =====> filenameRegex = $filenameRegex ")
+        return ""
+    }
 
-    fun execute(){
+    fun execute() {
         scope.launch {
             try {
                 httpClient.connect()
-
-                if (!httpClient.isSuccessful()){
+                if (!httpClient.isSuccessful()) {
                     Log.d(TAG, "execute: ====> error network 1")
                     httpClient.disconnect()
                     return@launch
                 }
-                val temp = FileStorage.getTempPath(downloadEntity.dirPath, downloadEntity.fileName)
+                var dataFileName = getDataFileNameIfSupported()
+                val temp = FileStorage.getTempPath(downloadEntity.dirPath, dataFileName + "_${downloadEntity.downloadId}")
                 isResumeSupported = httpClient.isSupportResume()
-                if (!isResumeSupported){
+                if (!isResumeSupported) {
                     val deletedTempFile = File(temp)
                     if (deletedTempFile.delete()) {
                         Log.d(TAG, "execute: ====> deleted file success")
-                    }else {
+                    } else {
                         Log.d(TAG, "execute ====> deleted file failure")
                     }
                     httpClient.connectNotResume()
-                    if (!httpClient.isSuccessful()){
+                    if (!httpClient.isSuccessful()) {
                         Log.d(TAG, "execute: ====> error network 2")
                         httpClient.disconnect()
                         return@launch
@@ -55,14 +69,13 @@ class MyDownloadTask(val downloadEntity: DownloadEntity) {
                 val inputStream = httpClient.getInputStream()
                 // handle file
                 val tempPath = File(temp)
-                Log.d(TAG, "execute: ====> tempPath = "+ tempPath.length())
+                Log.d(TAG, "execute: ====> tempPath = " + tempPath.length())
                 val outputStream = FileDownloadRandomAccess.create(tempPath)
 
                 if (cachedDownloadedByte > 0) {
                     outputStream.seek(cachedDownloadedByte)
                 }
                 Log.d(TAG, "execute: ====> tempfile length = ${tempPath.length()} - cachedDownloadedByte = $cachedDownloadedByte - contentLength = $contentLength")
-                Log.d(TAG, "execute: =====> update tempPath = $temp - downloadId = ${downloadEntity.downloadId}")
                 DownloadingDatabase.getInstance().getDownloadingDao().updateTotalBytes(downloadEntity.downloadId, contentLength)
                 val bufferedInputStream = BufferedInputStream(inputStream, BUFFER_SIZE)
                 val buffer = ByteArray(BUFFER_SIZE)
@@ -77,7 +90,7 @@ class MyDownloadTask(val downloadEntity: DownloadEntity) {
                         if (byteCount == -1) {
                             break
                         }
-                        outputStream.write(buffer,0, byteCount)
+                        outputStream.write(buffer, 0, byteCount)
                         cachedDownloadedByte += byteCount
                         val progress = (cachedDownloadedByte * 100.0f / contentLength).toDouble()
                         DownloadingDatabase.getInstance().getDownloadingDao().updateDownloadedBytes(downloadEntity.downloadId, cachedDownloadedByte)
@@ -97,7 +110,7 @@ class MyDownloadTask(val downloadEntity: DownloadEntity) {
                         outputStream.flushAndSync()
                         currentState = DownloadTaskState.Paused
                         DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(downloadEntity.downloadId, DownloadEntity.STATUS_PAUSED)
-                        if (!isResumeSupported){
+                        if (!isResumeSupported) {
                             Log.d(TAG, "execute: =====> update - isActive = $isActive - id = ${downloadEntity.downloadId}")
                             DownloadingDatabase.getInstance().getDownloadingDao().updateDownloadedBytes(downloadEntity.downloadId, 0)
                         }
@@ -110,57 +123,112 @@ class MyDownloadTask(val downloadEntity: DownloadEntity) {
                 httpClient.disconnect()
                 if (currentState == DownloadTaskState.Completed) {
                     DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(downloadEntity.downloadId, DownloadEntity.STATUS_COMPLETED)
-                    val newPath = FileStorage.getPath(downloadEntity.dirPath, downloadEntity.fileName)
+                    var newPath = FileStorage.getPath(downloadEntity.dirPath, dataFileName)
                     Log.d(TAG, "execute: ===> temp = $temp - newPath = $newPath")
                     FileStorage.renameFileName(temp, newPath)
-                    DownloadingDatabase.getInstance().getDownloadingDao().updateInformationDownload(downloadEntity.downloadId,newPath,"", totalBytes = contentLength)
-                    val fileCheck = File(newPath)
-                    if (fileCheck.exists()) {
-                        val sizeInBytes = fileCheck.length()
-                        val md5String = FileStorage.getFileMD5(fileCheck)
-                        Log.d(TAG, "execute: ====> md5String = $md5String")
-                        Log.d(TAG, "resumeDownloading: =====> File size: $sizeInBytes bytes")
-                    }
+                    DownloadingDatabase.getInstance().getDownloadingDao().updateInformationDownload(
+                        downloadEntity.downloadId,
+                        newPath,
+                        "",
+                        totalBytes = contentLength
+                    )
+                    newPath = zipFileIfNecessary(newPath, dataFileName)
+                    val fileZipCheck = File(newPath)
+                    RecoverySystem.verifyPackage(fileZipCheck,object : RecoverySystem.ProgressListener{
+                        override fun onProgress(p0: Int) {
+                            Log.d(TAG, "onProgress: =====> p0 = $p0")
+                        }
+
+                    },null)
+                    val sizeInBytes = fileZipCheck.length()
+                    val md5String = FileStorage.getFileMD5(fileZipCheck)
+                    Log.d(TAG, "execute: ====> md5String = $md5String")
+                    Log.d(TAG, "resumeDownloading: =====> File size: $sizeInBytes bytes")
+
                 }
-            }catch (e : Exception){
+            } catch (e: Exception) {
                 Log.d(TAG, "execute: ====> error1 = ${e.message}")
                 scope.launch {
                     Log.d(TAG, "execute: =====> isResumeSupported = $isResumeSupported")
-                    if (!isResumeSupported){
-                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatusWithDownloadedBytes(downloadEntity.downloadId, 0,DownloadEntity.STATUS_PAUSED)
-                    }else {
+                    if (!isResumeSupported) {
+                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatusWithDownloadedBytes(downloadEntity.downloadId, 0, DownloadEntity.STATUS_PAUSED)
+                    } else {
                         DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(downloadEntity.downloadId, DownloadEntity.STATUS_PAUSED)
                     }
                 }
             }
         }
     }
+
+    private suspend fun getDataFileNameIfSupported(): String {
+        val data = httpClient.getHeaders(CONTENT_DISPOSITION)
+        Log.d(TAG, "execute: =====> CONTENT_DISPOSITION = $data")
+        var dataFileName = downloadEntity.fileName
+        if (data != null && data.isNotEmpty() && data.contains("filename")) {
+            Log.d(TAG, "execute: ======> VAO getNameFile")
+            val dataRes = getFileNameFromContentDisposition(data)
+            Log.d(TAG, "execute: ====> fileName = $dataRes")
+            if (dataRes.isNotEmpty()) {
+                dataFileName = dataRes
+                DownloadingDatabase.getInstance().getDownloadingDao()
+                    .updateFileName(downloadEntity.downloadId, dataFileName)
+            }
+        }
+        return dataFileName
+    }
+    // Necessary
+
+    private fun zipFileIfNecessary(newPath: String, dataFileName: String, isZip : Boolean = false): String {
+        var newPath1 = newPath
+        val fileCheck = File(newPath1)
+        if (fileCheck.exists() && isZip) {
+            Log.d(TAG, "zipFileIfNeceesary: ====> zip file")
+            if (!dataFileName.contains("zip")) {
+                FileStorage.createZipFile(
+                    listOf(fileCheck),
+                    File(downloadEntity.dirPath, dataFileName.plus(".zip"))
+                )
+            }
+            newPath1 = FileStorage.getPath(downloadEntity.dirPath, "download.zip")
+        }
+        return newPath1
+    }
+
     fun pause() {
         currentState = DownloadTaskState.Paused
         scope.launch {
-            DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(downloadEntity.downloadId,
-                DownloadEntity.STATUS_PAUSED )
+            DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(
+                downloadEntity.downloadId,
+                DownloadEntity.STATUS_PAUSED
+            )
         }
     }
-    fun resume(){
+
+    fun resume() {
         currentState = DownloadTaskState.Downloading
         scope.launch {
-            DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(downloadEntity.downloadId,
-                DownloadEntity.STATUS_DOWNLOADING )
+            DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(
+                downloadEntity.downloadId,
+                DownloadEntity.STATUS_DOWNLOADING
+            )
         }
     }
-    fun cancel(){
+
+    fun cancel() {
         currentState = DownloadTaskState.None
         httpClient.disconnect()
     }
-    fun isResumeSupported(): Boolean{
+
+    fun isResumeSupported(): Boolean {
         return httpClient.isSupportResume()
     }
+
     fun close() {
         currentState = DownloadTaskState.None
         scope.cancel()
     }
 }
+
 sealed class DownloadTaskState {
     data object None : DownloadTaskState()
     data object Pending : DownloadTaskState()

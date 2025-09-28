@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkStateListener {
     private val downloadingMap = ConcurrentHashMap<Long, DownloadEntity>()
     private val downloadTaskRunMap = ConcurrentHashMap<Long, MyDownloadTask>()
+    private val downloadingUrl = ConcurrentHashMap<String, Boolean>()
     private val TAG = "MyDownloadManager"
     private val networkConnectionManager = NetworkConnectionManager(context, this)
     init {
@@ -31,12 +32,15 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
             }
         }
     }
-    fun downloadFile(entity: DownloadEntity) {
+    fun downloadFile(entity: DownloadEntity): Long {
+        Log.d(TAG, "downloadFile: =====> START ========")
         if (!networkConnectionManager.isConnected()) {
             Log.d(TAG, "downloadFile: =====> no network")
-            return
+            return -1
         }
         val downloadingEntity = downloadingMap[entity.downloadId]
+        val isUrlDownloading = downloadingUrl[entity.url] ?: false
+        Log.d(TAG, "downloadFil: =======> isUrlDownloading = $isUrlDownloading - $downloadingEntity")
         if (downloadingEntity != null) {
             Log.d(TAG, "downloadFile: ====> existing")
             val downloadTask = downloadTaskRunMap[downloadingEntity.downloadId]
@@ -44,22 +48,29 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
             val downloadTaskRun = MyDownloadTask(downloadingEntity)
             downloadTaskRun.execute()
             downloadTaskRunMap[downloadingEntity.downloadId] = downloadTaskRun
-            return
+            return downloadingEntity.downloadId
         }
-        runBlocking {
-            DownloadingDatabase.getInstance().getDownloadingDao().insert(entity)
+        if (!isUrlDownloading) {
+            runBlocking {
+                DownloadingDatabase.getInstance().getDownloadingDao().insert(entity)
+            }
+            downloadingMap[entity.downloadId] = entity
+            val downloadTaskRun = MyDownloadTask(entity)
+            downloadTaskRun.execute()
+            downloadTaskRunMap[entity.downloadId] = downloadTaskRun
+            downloadingUrl[entity.url] = true
+            Log.d(TAG, "downloadFile: =====> FINISHED ========")
+        }else {
+            Log.d(TAG, "downloadFile: ====> url = ${entity.url} is downloading. don't need to download")
         }
-        downloadingMap[entity.downloadId] = entity
-        val downloadTaskRun = MyDownloadTask(entity)
-        downloadTaskRun.execute()
-        downloadTaskRunMap[entity.downloadId] = downloadTaskRun
+        return entity.downloadId
     }
 
     fun resumeDownloading(downloadId : Long){
         val downloadTaskRun = downloadTaskRunMap[downloadId]
         downloadTaskRun?.resume()
-
     }
+
     fun pauseDownloading(downloadId: Long) {
         val downloadTaskRun = downloadTaskRunMap[downloadId]
         downloadTaskRun?.pause()
@@ -92,7 +103,9 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
                 taskRun?.close()
                 val myDownloadTask = MyDownloadTask(currentDownloadEntity)
                 myDownloadTask.execute()
+
                 downloadTaskRunMap[data.downloadId] = myDownloadTask
+
             }
         }
     }

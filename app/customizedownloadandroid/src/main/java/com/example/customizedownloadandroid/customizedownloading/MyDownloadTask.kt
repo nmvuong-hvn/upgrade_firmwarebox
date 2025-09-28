@@ -46,7 +46,7 @@ class MyDownloadTask(val downloadEntity: DownloadEntity) {
                     httpClient.disconnect()
                     return@launch
                 }
-                var dataFileName = getDataFileNameIfSupported()
+                val dataFileName = getDataFileNameIfSupported()
                 val temp = FileStorage.getTempPath(downloadEntity.dirPath, dataFileName + "_${downloadEntity.downloadId}")
                 isResumeSupported = httpClient.isSupportResume()
                 if (!isResumeSupported) {
@@ -134,12 +134,12 @@ class MyDownloadTask(val downloadEntity: DownloadEntity) {
                     )
                     newPath = zipFileIfNecessary(newPath, dataFileName)
                     val fileZipCheck = File(newPath)
-                    RecoverySystem.verifyPackage(fileZipCheck,object : RecoverySystem.ProgressListener{
-                        override fun onProgress(p0: Int) {
-                            Log.d(TAG, "onProgress: =====> p0 = $p0")
-                        }
-
-                    },null)
+//                    RecoverySystem.verifyPackage(fileZipCheck,object : RecoverySystem.ProgressListener{
+//                        override fun onProgress(p0: Int) {
+//                            Log.d(TAG, "onProgress: =====> p0 = $p0")
+//                        }
+//
+//                    },null)
                     val sizeInBytes = fileZipCheck.length()
                     val md5String = FileStorage.getFileMD5(fileZipCheck)
                     Log.d(TAG, "execute: ====> md5String = $md5String")
@@ -151,9 +151,9 @@ class MyDownloadTask(val downloadEntity: DownloadEntity) {
                 scope.launch {
                     Log.d(TAG, "execute: =====> isResumeSupported = $isResumeSupported")
                     if (!isResumeSupported) {
-                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatusWithDownloadedBytes(downloadEntity.downloadId, 0, DownloadEntity.STATUS_PAUSED)
+                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatusWithDownloadedBytes(downloadEntity.downloadId, 0, if (currentState == DownloadTaskState.Completed) DownloadEntity.STATUS_COMPLETED else  DownloadEntity.STATUS_PAUSED)
                     } else {
-                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(downloadEntity.downloadId, DownloadEntity.STATUS_PAUSED)
+                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(downloadEntity.downloadId, if (currentState == DownloadTaskState.Completed) DownloadEntity.STATUS_COMPLETED else  DownloadEntity.STATUS_PAUSED)
                     }
                 }
             }
@@ -189,8 +189,10 @@ class MyDownloadTask(val downloadEntity: DownloadEntity) {
                     File(downloadEntity.dirPath, dataFileName.plus(".zip"))
                 )
             }
-            newPath1 = FileStorage.getPath(downloadEntity.dirPath, "download.zip")
+            newPath1 = FileStorage.getPath(downloadEntity.dirPath, dataFileName.plus(".zip"))
         }
+        val fileNewCheck = File(newPath1)
+        Log.d(TAG, "zipFileIfNecessary: ====> fileNewCheck = ${fileNewCheck.length()}")
         return newPath1
     }
 

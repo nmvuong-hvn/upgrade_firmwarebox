@@ -110,11 +110,11 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
                 var currentDownloadEntity = data
                 val maxBytes =  data.downloadedBytes
                 val tempPath = FileStorage.getTempPath(data.dirPath, data.fileName)
-                val taskRun = downloadTaskRunMap.remove(data.downloadId)
-                Log.d(TAG, "onNetworkAvailable: ====> maxBytes = $maxBytes")
-                if (tempPath.isNotEmpty() && taskRun?.isResumeSupported() == true ){
+                val taskRun = downloadTaskRetrofitRunMap.remove(data.downloadId)
+                Log.d(TAG, "onNetworkAvailable: ====> maxBytes = $maxBytes - $tempPath - ${taskRun?.getResumeSupported()}")
+                if (tempPath.isNotEmpty() && taskRun?.getResumeSupported() == true ){
                     val filePath = File(tempPath)
-                    Log.d(TAG, "onNetworkAvailable: =====> filePath = $filePath - ")
+                    Log.d(TAG, "onNetworkAvailable: =====> filePath = ${filePath.length()} - $maxBytes ")
                     currentDownloadEntity = data.copy(status = DownloadEntity.STATUS_DOWNLOADING)
                     if (filePath.exists()) {
                         if (maxBytes != filePath.length()) {

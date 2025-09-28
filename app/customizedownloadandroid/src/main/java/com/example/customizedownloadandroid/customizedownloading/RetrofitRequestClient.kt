@@ -47,25 +47,28 @@ class RetrofitRequestClient(val entityDownload: DownloadEntity) : DownloadingTas
         Log.d(TAG, "getFileNameFromContentDisposition: =====> filenameRegex = $filenameRegex ")
         return ""
     }
+
     override fun execute() {
         scope.launch {
             try {
-                if (cachedDownloadedByte > 0){
-                    headerMap[RANGE] = String.format(java.util.Locale.ENGLISH,"bytes=%d-", cachedDownloadedByte)
+                if (cachedDownloadedByte > 0) {
+                    headerMap[RANGE] =
+                        String.format(java.util.Locale.ENGLISH, "bytes=%d-", cachedDownloadedByte)
                     Log.d(TAG, "execute: =====> cachedDownloadedByte = $cachedDownloadedByte")
                 }
-                var responseServer = RetrofitInstance.instanceService.getUrl(entityDownload.url,headerMap)
+                var responseServer = RetrofitInstance.instanceService.getUrl(entityDownload.url, headerMap)
                 Log.d(TAG, "execute: ======> VAO = $responseServer")
-                if (responseServer?.isSuccessful == false || responseServer == null){
+                if (responseServer?.isSuccessful == false || responseServer == null) {
                     Log.d(TAG, "execute: =====> error network ====> $responseServer")
                     return@launch
                 }
                 // isSupported
                 val acceptRanges = responseServer.headers()[ACCEPT_RANGES]
-                val isAcceptRanges = acceptRanges != null && acceptRanges.isNotEmpty() && acceptRanges.contains("bytes")
+                val isAcceptRanges =
+                    acceptRanges != null && acceptRanges.isNotEmpty() && acceptRanges.contains("bytes")
                 var dataFileName = entityDownload.fileName
                 val contentDis = responseServer.headers()[CONTENT_DISPOSITION]
-                if (contentDis != null && contentDis.isNotEmpty() && contentDis.contains("filename")){
+                if (contentDis != null && contentDis.isNotEmpty() && contentDis.contains("filename")) {
                     val dataRes = getFileNameFromContentDisposition(contentDis)
                     Log.d(TAG, "execute: ====> fileName = $dataRes")
                     if (dataRes.isNotEmpty()) {
@@ -73,44 +76,50 @@ class RetrofitRequestClient(val entityDownload: DownloadEntity) : DownloadingTas
                     }
                 }
                 val tempPath = FileStorage.getTempPath(entityDownload.dirPath, dataFileName)
+                DownloadingDatabase.getInstance().getDownloadingDao().updateFileName(entityDownload.downloadId, dataFileName)
+
                 isResumeSupported = responseServer.code() == HttpURLConnection.HTTP_PARTIAL || isAcceptRanges
                 Log.d(TAG, "execute: ====> isResumeSupported = $isResumeSupported")
-                if(!isResumeSupported){
+                if (!isResumeSupported) {
                     val deletedFile = File(tempPath)
-                    if (deletedFile.delete()){
+                    if (deletedFile.delete()) {
                         Log.d(TAG, "execute: ====> deleted file successfully")
-                    }else {
+                    } else {
                         Log.d(TAG, "execute: ====> deleted file failure")
                     }
                     headerMap.clear()
-                    responseServer = RetrofitInstance.instanceService.getUrl(entityDownload.url, headerMap)
-                    if (responseServer?.isSuccessful == false || responseServer == null){
+                    responseServer =
+                        RetrofitInstance.instanceService.getUrl(entityDownload.url, headerMap)
+                    if (responseServer?.isSuccessful == false || responseServer == null) {
                         Log.d(TAG, "execute: =====> error network ====> $responseServer")
                         return@launch
                     }
                 }
-                val totalBytes =( responseServer.body()?.contentLength() ?: 0) + cachedDownloadedByte
-                DownloadingDatabase.getInstance().getDownloadingDao().updateTotalBytes(entityDownload.downloadId,totalBytes)
-                responseServer.body()?.byteStream()?.use { inputStream ->
+                val totalBytes = (responseServer.body()?.contentLength() ?: 0) + cachedDownloadedByte
+                DownloadingDatabase.getInstance().getDownloadingDao().updateTotalBytes(entityDownload.downloadId, totalBytes)
+                val file = File(tempPath)
+                val outputStream = FileDownloadRandomAccess.create(file = file)
+                responseServer.body()?.byteStream()?.let { inputStream ->
 
                     currentState = DownloadTaskState.Downloading
-                    DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(entityDownload.downloadId, DownloadEntity.STATUS_DOWNLOADING)
+                    DownloadingDatabase.getInstance().getDownloadingDao()
+                        .updateStatus(entityDownload.downloadId, DownloadEntity.STATUS_DOWNLOADING)
 
-                    val file = File(tempPath)
-                    val outputStream = FileDownloadRandomAccess.create(file = file)
+                   
                     val bufferedInputStream = BufferedInputStream(inputStream, BUFFER_SIZE)
                     val buffer = ByteArray(BUFFER_SIZE)
 
+                    Log.d(TAG, "execute: =====> tempPath = ${file.length()}")
                     do {
                         try {
 
-                            if (currentState == DownloadTaskState.Paused){
+                            if (currentState == DownloadTaskState.Paused) {
                                 delay(300L)
                                 continue
                             }
-                            val byteCount = bufferedInputStream.read(buffer,0,BUFFER_SIZE)
-                            if (byteCount == -1 ){
-                                if (cachedDownloadedByte == totalBytes){
+                            val byteCount = bufferedInputStream.read(buffer, 0, BUFFER_SIZE)
+                            if (byteCount == -1) {
+                                if (cachedDownloadedByte == totalBytes) {
                                     Log.d(TAG, "execute: =====> Completed 1")
                                     currentState = DownloadTaskState.Completed
                                 }
@@ -119,47 +128,69 @@ class RetrofitRequestClient(val entityDownload: DownloadEntity) : DownloadingTas
                             outputStream.write(buffer, 0, byteCount)
                             cachedDownloadedByte += byteCount
                             val progress = (cachedDownloadedByte * 100.0f / totalBytes)
-                            DownloadingDatabase.getInstance().getDownloadingDao().updateDownloadedBytes(entityDownload.downloadId, cachedDownloadedByte)
-                            Log.d(TAG, "startDownloading: =====> downloadedBytes = $cachedDownloadedByte - progress = ${progress}")
+                            DownloadingDatabase.getInstance().getDownloadingDao()
+                                .updateDownloadedBytes(
+                                    entityDownload.downloadId,
+                                    cachedDownloadedByte
+                                )
+//                            Log.d(
+//                                TAG,
+//                                "startDownloading: =====> downloadedBytes = $cachedDownloadedByte - progress = ${progress}"
+//                            )
 
-                            if (cachedDownloadedByte == totalBytes){
+                            if (cachedDownloadedByte == totalBytes) {
                                 Log.d(TAG, "execute: =====> Completed")
                                 currentState = DownloadTaskState.Completed
                                 break
                             }
 
-                        }catch (e : Exception){
+                        } catch (e: Exception) {
+                            Log.d(TAG, "execute: =====> error = ${e.message}")
+                            outputStream.flushAndSync()
                             currentState == DownloadTaskState.Paused
-                            DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(entityDownload.downloadId, DownloadEntity.STATUS_PAUSED)
+                            DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(
+                                entityDownload.downloadId,
+                                DownloadEntity.STATUS_PAUSED
+                            )
                             if (!isResumeSupported) {
                                 Log.d(TAG, "execute: =====> update - isActive = $isActive - id = ${entityDownload.downloadId}")
-                                DownloadingDatabase.getInstance().getDownloadingDao().updateDownloadedBytes(entityDownload.downloadId, 0)
+                                DownloadingDatabase.getInstance().getDownloadingDao()
+                                    .updateDownloadedBytes(entityDownload.downloadId, 0)
                             }
                             break
                         }
-                    }while (true)
-                    outputStream.flushAndSync()
-                    outputStream.close()
+                    } while (true)
+                    Log.d(TAG, "execute: =====> flushAndSync")
                     inputStream.close()
+                    outputStream.close()
+                    bufferedInputStream.close()
                     if (currentState == DownloadTaskState.Completed) {
-                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(entityDownload.downloadId, DownloadEntity.STATUS_COMPLETED)
+                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(
+                            entityDownload.downloadId,
+                            DownloadEntity.STATUS_COMPLETED
+                        )
                         var newPath = FileStorage.getPath(entityDownload.dirPath, dataFileName)
                         Log.d(TAG, "execute: ===> temp = $tempPath - newPath = $newPath")
                         FileStorage.renameFileName(tempPath, newPath)
-                        DownloadingDatabase.getInstance().getDownloadingDao().updateInformationDownload(
-                            entityDownload.downloadId,
-                            newPath,
-                            "",
-                            totalBytes = responseServer.body()!!.contentLength()
-                        )
+                        DownloadingDatabase.getInstance().getDownloadingDao()
+                            .updateInformationDownload(
+                                entityDownload.downloadId,
+                                newPath,
+                                "",
+                                totalBytes = responseServer.body()!!.contentLength()
+                            )
                         newPath = zipFileIfNecessary(newPath, dataFileName)
                         val fileZipCheck = File(newPath)
-                        RecoverySystem.verifyPackage(fileZipCheck,object : RecoverySystem.ProgressListener{
-                            override fun onProgress(p0: Int) {
-                                Log.d(TAG, "onProgress: =====> p0 = $p0")
-                            }
+                        RecoverySystem.verifyPackage(
+                            fileZipCheck,
+                            object : RecoverySystem.ProgressListener {
+                                override fun onProgress(p0: Int) {
+                                    Log.d(TAG, "onProgress: =====> p0 = $p0")
+                                }
 
-                        },null)
+                            },
+                            null
+                        )
                         val sizeInBytes = fileZipCheck.length()
                         val md5String = FileStorage.getFileMD5(fileZipCheck)
                         Log.d(TAG, "execute: ====> md5String = $md5String")
@@ -167,20 +198,33 @@ class RetrofitRequestClient(val entityDownload: DownloadEntity) : DownloadingTas
 
                     }
                 }
-            }catch (e : Exception){
+                responseServer.body()?.close()
+            } catch (e: Exception) {
                 Log.d(TAG, "execute: =======> e = ${e.message}")
                 scope.launch {
                     Log.d(TAG, "execute: =====> isResumeSupported = $isResumeSupported")
                     if (!isResumeSupported) {
-                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatusWithDownloadedBytes(entityDownload.downloadId, 0, DownloadEntity.STATUS_PAUSED)
+                        DownloadingDatabase.getInstance().getDownloadingDao()
+                            .updateStatusWithDownloadedBytes(
+                                entityDownload.downloadId,
+                                0,
+                                DownloadEntity.STATUS_PAUSED
+                            )
                     } else {
-                        DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(entityDownload.downloadId, DownloadEntity.STATUS_PAUSED)
+                        DownloadingDatabase.getInstance().getDownloadingDao()
+                            .updateStatus(entityDownload.downloadId, DownloadEntity.STATUS_PAUSED)
                     }
                 }
             }
         }
     }
-    private fun zipFileIfNecessary(newPath: String, dataFileName: String, isZip : Boolean = false): String {
+
+    fun getResumeSupported() = isResumeSupported
+    private fun zipFileIfNecessary(
+        newPath: String,
+        dataFileName: String,
+        isZip: Boolean = false
+    ): String {
         var newPath1 = newPath
         val fileCheck = File(newPath1)
         if (fileCheck.exists() && isZip) {

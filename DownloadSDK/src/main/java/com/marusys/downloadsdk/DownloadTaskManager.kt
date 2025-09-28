@@ -82,56 +82,22 @@ class DownloadTaskManager(
     }
 
     private suspend fun performDownload() {
-        // Get current downloaded bytes (important for resume)
-        val currentDownloadedBytes = downloadedBytes.get()
-        
-        // Update request model with current progress for HTTP Range header
+        // Update request model with current progress
         downloadRequestFileModel = downloadRequestFileModel.copy(
-            downloadedBytes = currentDownloadedBytes
+            downloadedBytes = downloadedBytes.get()
         )
         
-        Log.d(TAG, "Starting download from byte: $currentDownloadedBytes")
-        
-        // Establish connection with Range header for resume
+        // Establish connection
         httpConnectionManager.buildConnectionToDownload()
         
         val contentLength = httpConnectionManager.getContentLength()
-        
-        // Set total bytes correctly for resume scenarios
-        if (totalBytes.get() <= 0) {
-            // For new downloads, total = content length + already downloaded
-            val totalSize = if (currentDownloadedBytes > 0) {
-                // Resume: add current downloaded bytes to remaining content length
-                currentDownloadedBytes + contentLength
-            } else {
-                // New download: just the content length
-                contentLength
-            }
-            totalBytes.set(totalSize)
-            Log.d(TAG, "Total size set to: $totalSize bytes")
+        if (contentLength > 0 && totalBytes.get() <= 0) {
+            totalBytes.set(contentLength + downloadedBytes.get())
         }
         
-        // Validate that we can resume
-        if (currentDownloadedBytes > 0 && outputFile.exists()) {
-            val actualFileSize = outputFile.length()
-            if (actualFileSize != currentDownloadedBytes) {
-                Log.w(TAG, "File size mismatch. Expected: $currentDownloadedBytes, Actual: $actualFileSize")
-                // Reset to actual file size
-                downloadedBytes.set(actualFileSize)
-                downloadRequestFileModel = downloadRequestFileModel.copy(
-                    downloadedBytes = actualFileSize
-                )
-                // Reconnect with correct range
-                httpConnectionManager.disconnect()
-                httpConnectionManager.buildConnectionToDownload()
-            }
-        }
-        
-        // Start streaming download from current position
+        // Start streaming download
         httpConnectionManager.getInputStream()?.use { inputStream ->
-            // IMPORTANT: Use append mode (true) when resuming
-            FileOutputStream(outputFile, currentDownloadedBytes > 0).use { outputStream ->
-                Log.d(TAG, "Resume mode: ${currentDownloadedBytes > 0}, File exists: ${outputFile.exists()}")
+            FileOutputStream(outputFile, downloadedBytes.get() > 0).use { outputStream ->
                 downloadDataStream(inputStream, outputStream)
             }
         } ?: throw IOException("Unable to get input stream")
@@ -143,8 +109,6 @@ class DownloadTaskManager(
             true,
             outputFile.absolutePath
         )
-        
-        Log.d(TAG, "Download completed. Final size: ${outputFile.length()} bytes")
     }
 
     private suspend fun downloadDataStream(

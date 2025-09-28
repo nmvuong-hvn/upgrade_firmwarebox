@@ -23,6 +23,9 @@ interface DownloadingDao {
     @Query("UPDATE downloadentity SET status = :status WHERE downloadId= :downloadId ")
     suspend fun updateStatus(downloadId: Long, status: Int)
 
+    @Query("UPDATE downloadentity SET fileName = :fileName WHERE downloadId= :downloadId ")
+    suspend fun updateFileName(downloadId: Long, fileName: String)
+
     @Query("UPDATE downloadentity SET status = :status AND downloadedBytes= :downloadedBytes WHERE downloadId= :downloadId ")
     suspend fun updateStatusWithDownloadedBytes(downloadId: Long, downloadedBytes: Long, status: Int)
     @Query("SELECT * FROM downloadentity WHERE status IN (0,1,2)")

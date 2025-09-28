@@ -20,7 +20,7 @@ class HttpConnectionManager(private val request: DownloadRequestFileModel) {
             configureConnection(conn)
             conn.connect()
         }
-
+        
         if (!isValidResponse()) {
             throw IOException("Invalid HTTP response: ${getResponseCode()}")
         }
@@ -29,11 +29,11 @@ class HttpConnectionManager(private val request: DownloadRequestFileModel) {
     private fun createConnection(url: String): HttpURLConnection {
         return URL(url).openConnection() as HttpURLConnection
     }
-
+    
     private fun configureConnection(conn: HttpURLConnection) {
         conn.connectTimeout = CONNECT_TIMEOUT.toInt()
         conn.readTimeout = CONNECT_TIMEOUT.toInt()
-
+        
         if (request.downloadedBytes > 0) {
             val rangeHeader = String.format(
                 Locale.ENGLISH,
@@ -44,20 +44,20 @@ class HttpConnectionManager(private val request: DownloadRequestFileModel) {
             conn.setRequestProperty(Constants.RANGE_HEADER, rangeHeader)
         }
     }
-
+    
     fun getInputStream(): InputStream? = httpURLConnection?.inputStream
-
+    
     fun getResponseCode(): Int = httpURLConnection?.responseCode ?: 0
 
     fun getContentLength(): Long = httpURLConnection?.contentLengthLong ?: -1L
-
+    
     fun getETag(): String? = httpURLConnection?.getHeaderField(Constants.ETAG_HEADER)
 
     fun isValidResponse(): Boolean {
         val responseCode = getResponseCode()
         return responseCode == Constants.HTTP_OK || responseCode == Constants.HTTP_PARTIAL_CONTENT
     }
-
+    
     fun disconnect() {
         httpURLConnection?.disconnect()
         httpURLConnection = null

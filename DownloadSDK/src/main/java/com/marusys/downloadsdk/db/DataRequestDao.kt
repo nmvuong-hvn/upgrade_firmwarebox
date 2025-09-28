@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DataRequestDao {
-
+    
     @Insert(onConflict = REPLACE)
     suspend fun insertDownloadRequest(dataRequest: DataRequestModel)
     

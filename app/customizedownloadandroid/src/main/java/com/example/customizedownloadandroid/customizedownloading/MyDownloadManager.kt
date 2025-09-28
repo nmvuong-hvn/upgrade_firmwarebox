@@ -22,7 +22,7 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
     private val networkConnectionManager = NetworkConnectionManager(context, this)
     init {
         networkConnectionManager.init()
-        checkSyncDownloading()
+        //checkSyncDownloading()
     }
     fun checkSyncDownloading(){
         CoroutineScope(Dispatchers.IO).launch {
@@ -56,10 +56,10 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
         downloadTaskRunMap[entity.downloadId] = downloadTaskRun
     }
 
-    fun downloadFileWithRetrofit(entity: DownloadEntity){
+    fun downloadFileWithRetrofit(entity: DownloadEntity): Long {
         if (!networkConnectionManager.isConnected()) {
             Log.d(TAG, "downloadFile: =====> no network")
-            return
+            return -1
         }
         val downloadingEntity = downloadingMap[entity.downloadId]
         if (downloadingEntity != null) {
@@ -69,7 +69,7 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
             val downloadTaskRun = RetrofitRequestClient(downloadingEntity)
             downloadTaskRun.execute()
             downloadTaskRetrofitRunMap[downloadingEntity.downloadId] = downloadTaskRun
-            return
+            return downloadingEntity.downloadId
         }
         runBlocking {
             DownloadingDatabase.getInstance().getDownloadingDao().insert(entity)
@@ -78,15 +78,27 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
         val downloadTaskRun = RetrofitRequestClient(entity)
         downloadTaskRun.execute()
         downloadTaskRetrofitRunMap[entity.downloadId] = downloadTaskRun
+
+        return entity.downloadId
     }
 
     fun resumeDownloading(downloadId : Long){
         val downloadTaskRun = downloadTaskRunMap[downloadId]
         downloadTaskRun?.resume()
-
     }
+
+    fun resumeDownloadingWithRetrofit(downloadId : Long ){
+        val downloadTaskRun = downloadTaskRetrofitRunMap[downloadId]
+        downloadTaskRun?.resume()
+    }
+
     fun pauseDownloading(downloadId: Long) {
         val downloadTaskRun = downloadTaskRunMap[downloadId]
+        downloadTaskRun?.pause()
+    }
+
+    fun pauseDownloadingWithRetrofit(downloadId: Long) {
+        val downloadTaskRun = downloadTaskRetrofitRunMap[downloadId]
         downloadTaskRun?.pause()
     }
 

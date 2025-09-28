@@ -6,8 +6,11 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 
 object FileStorage {
@@ -68,5 +71,19 @@ object FileStorage {
         }
         val digest = md.digest()
         return digest.joinToString("") { "%02x".format(it) } // convert to hex string
+    }
+    fun createZipFile(files: List<File>, outputZipFile: File): File {
+        ZipOutputStream(FileOutputStream(outputZipFile)).use { zipOut ->
+            files.forEach { file ->
+                Log.d(TAG, "createZipFile: ======> file = ${file.name} ")
+                FileInputStream(file).use { fis ->
+                    val zipEntry = ZipEntry(file.name)
+                    zipOut.putNextEntry(zipEntry)
+                    fis.copyTo(zipOut)
+                    zipOut.closeEntry()
+                }
+            }
+        }
+        return outputZipFile
     }
 }

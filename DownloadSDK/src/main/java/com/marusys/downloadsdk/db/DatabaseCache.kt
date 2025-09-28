@@ -18,10 +18,10 @@ abstract class DatabaseCache : RoomDatabase() {
 
     companion object {
         private const val DATABASE_NAME = "download_requests_db"
-
+        
         @Volatile
         private var INSTANCE: DatabaseCache? = null
-
+        
         // Migration from version 1 to 2 (if users have old database)
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
@@ -46,7 +46,7 @@ abstract class DatabaseCache : RoomDatabase() {
                 """.trimIndent())
             }
         }
-
+        
         fun create(context: Context) {
             synchronized(this) {
                 if (INSTANCE == null) {
@@ -67,7 +67,7 @@ abstract class DatabaseCache : RoomDatabase() {
                 "Database not initialized. Call create(context) first."
             )
         }
-
+        
         fun closeDatabase() {
             INSTANCE?.close()
             INSTANCE = null

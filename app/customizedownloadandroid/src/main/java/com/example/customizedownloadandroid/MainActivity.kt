@@ -113,7 +113,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
                         status = DownloadEntity.STATUS_DOWNLOADING
                     )
 
-                    firmwareManager.downloadFile(entity)
+                    firmwareManager.downloadFileWithRetrofit(entity)
                 }) {
                     Text(text = "Downloading")
                 }

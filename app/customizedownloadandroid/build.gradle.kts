@@ -58,7 +58,7 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-    val room_version = "2.8.1"
+    val room_version = "2.6.1"
 
     implementation("androidx.room:room-runtime:$room_version")
 
@@ -68,4 +68,12 @@ dependencies {
 
     // optional - Kotlin Extensions and Coroutines support for Room
     implementation("androidx.room:room-ktx:$room_version")
+
+    implementation("com.squareup.retrofit2:retrofit:2.6.0")
+    implementation("com.squareup.retrofit2:adapter-rxjava2:2.3.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.6.0")
+    implementation("com.google.code.gson:gson:2.8.5")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.9.2")
+    implementation("com.squareup.picasso:picasso:2.5.2")
+    implementation("com.squareup.okhttp3:okhttp:4.9.2")
 }

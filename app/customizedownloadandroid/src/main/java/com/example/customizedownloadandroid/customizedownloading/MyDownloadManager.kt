@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkStateListener {
     private val downloadingMap = ConcurrentHashMap<Long, DownloadEntity>()
     private val downloadTaskRunMap = ConcurrentHashMap<Long, MyDownloadTask>()
+    private val downloadTaskRetrofitRunMap = ConcurrentHashMap<Long, RetrofitRequestClient>()
     private val TAG = "MyDownloadManager"
     private val networkConnectionManager = NetworkConnectionManager(context, this)
     init {
@@ -55,6 +56,30 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
         downloadTaskRunMap[entity.downloadId] = downloadTaskRun
     }
 
+    fun downloadFileWithRetrofit(entity: DownloadEntity){
+        if (!networkConnectionManager.isConnected()) {
+            Log.d(TAG, "downloadFile: =====> no network")
+            return
+        }
+        val downloadingEntity = downloadingMap[entity.downloadId]
+        if (downloadingEntity != null) {
+            Log.d(TAG, "downloadFile: ====> existing")
+            val downloadTask = downloadTaskRetrofitRunMap[downloadingEntity.downloadId]
+            downloadTask?.close()
+            val downloadTaskRun = RetrofitRequestClient(downloadingEntity)
+            downloadTaskRun.execute()
+            downloadTaskRetrofitRunMap[downloadingEntity.downloadId] = downloadTaskRun
+            return
+        }
+        runBlocking {
+            DownloadingDatabase.getInstance().getDownloadingDao().insert(entity)
+        }
+        downloadingMap[entity.downloadId] = entity
+        val downloadTaskRun = RetrofitRequestClient(entity)
+        downloadTaskRun.execute()
+        downloadTaskRetrofitRunMap[entity.downloadId] = downloadTaskRun
+    }
+
     fun resumeDownloading(downloadId : Long){
         val downloadTaskRun = downloadTaskRunMap[downloadId]
         downloadTaskRun?.resume()
@@ -90,9 +115,9 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
                     }
                 }
                 taskRun?.close()
-                val myDownloadTask = MyDownloadTask(currentDownloadEntity)
+                val myDownloadTask = RetrofitRequestClient(currentDownloadEntity)
                 myDownloadTask.execute()
-                downloadTaskRunMap[data.downloadId] = myDownloadTask
+                downloadTaskRetrofitRunMap[data.downloadId] = myDownloadTask
             }
         }
     }
@@ -101,7 +126,7 @@ class MyDownloadManager (context: Context) : NetworkConnectionManager.NetworkSta
         CoroutineScope(Dispatchers.IO).launch {
             DownloadingDatabase.getInstance().getDownloadingDao().getAllDownloadingList().forEach { data->
                 DownloadingDatabase.getInstance().getDownloadingDao().updateStatus(data.downloadId, DownloadEntity.STATUS_PAUSED)
-                val taskRun = downloadTaskRunMap[data.downloadId]
+                val taskRun = downloadTaskRetrofitRunMap[data.downloadId]
                 taskRun?.cancel()
             }
         }
